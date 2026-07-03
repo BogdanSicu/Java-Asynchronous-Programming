@@ -17,7 +17,7 @@ public class SynchronizerTest {
         runAsynchronously();
     }
 
-    private static void runAsynchronously() throws InterruptedException {
+    private static void runAsynchronously() {
 
         System.out.println("---------------Asynchronously------------------");
 
@@ -74,33 +74,31 @@ public class SynchronizerTest {
 
         var startInstant = Instant.now();
 
-        var futures = new ArrayList<CompletableFuture<Quotation>>();
-        var quotations = new ConcurrentLinkedDeque<Quotation>();
+        List<CompletableFuture<Quotation>> completableFutures =  new ArrayList<>();
 
-        for (Supplier<Quotation> task : taskList) {
-            futures.add(CompletableFuture.supplyAsync(task));
+        for (Supplier<Quotation> task: taskList) {
+            var completableFuture = CompletableFuture.supplyAsync(task);
+            completableFutures.add(completableFuture);
         }
 
-        List<CompletableFuture<Void>> voids = new ArrayList<>();
-
-        for (CompletableFuture<Quotation> completableFuture : futures) {
-            voids.add(completableFuture.thenAccept(
-                        quotations::add
-                    ));
-        }
-
-        for(CompletableFuture<Void> r : voids) {
-            r.join(); // blocking - just to make the main thread to wait for the others to finish
-        }
-
-        var bestQuotation = quotations.stream()
-                .min(Comparator.comparing(Quotation::value)).orElseThrow();
+        CompletableFuture.allOf(completableFutures.toArray(CompletableFuture[]::new))
+                .thenAccept(
+                        v -> {
+                          var result = completableFutures.stream().map(
+                                    ct -> ct.join() // why this is not blocking?
+                                    // -> it happens just after all the other completableFutures have finished
+                                    // but it doesn't block the thread to wait for them
+                            )
+                            .min(Comparator.comparing(Quotation::value))
+                            .orElseThrow();
+                            System.out.println(result.value() + "::" + result.description());
+                        }
+                )
+                .join(); // this makes the main thread to wait
 
         var endInstant = Instant.now();
 
-        System.out.println("Best Quotation is [" + bestQuotation.value() + "]"
-                + "\nBest server is [" + bestQuotation.description() + "]"
-                + "\n(millis) " + Duration.between(endInstant, startInstant).toMillis());
+        System.out.println(Duration.between(endInstant, startInstant).toMillis());
 
     }
 
